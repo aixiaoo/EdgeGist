@@ -2,12 +2,16 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "edge-gist",
   "compatibility_date": "2026-05-08",
-  "pages_build_output_dir": "dist",
+  "main": "./dist/_worker.js",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
   "vars": {
     "EDGEGIST_OWNER_USERNAME": "owner",
     "EDGEGIST_OWNER_PASSWORD": "change-this-password",
     "EDGEGIST_OWNER_TOKEN": "change-this-token",
-    "EDGEGIST_BASE_URL": "https://your-project.pages.dev",
+    "EDGEGIST_BASE_URL": "https://edge-gist.your-subdomain.workers.dev",
     "EDGEGIST_HISTORY_MAX_VERSIONS": "100",
     "EDGEGIST_TURNSTILE_SITE_KEY": "",
     "EDGEGIST_TURNSTILE_SECRET_KEY": ""

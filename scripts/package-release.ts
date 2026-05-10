@@ -15,11 +15,9 @@ import { verifyReleaseDirectory } from './verify-release'
 
 const releaseRoot = 'release/edgegist'
 const packageZipPath = 'release/edgegist-package.zip'
-const uploadZipPath = 'release/edgegist-upload.zip'
 
 rmSync(releaseRoot, { recursive: true, force: true })
 rmSync(packageZipPath, { force: true })
-rmSync(uploadZipPath, { force: true })
 rmSync('release/edgegist.zip', { force: true })
 mkdirSync(releaseRoot, { recursive: true })
 
@@ -38,20 +36,17 @@ for (const file of [
 }
 
 writeFileSync(packageZipPath, zipSync(collectFilesForZip(releaseRoot, 'edgegist')))
-writeFileSync(uploadZipPath, zipSync(collectFilesForZip('dist')))
 
 const verification = verifyReleaseDirectory(releaseRoot, {
   requirePackageZip: true,
   packageZipPath,
-  requireUploadZip: true,
-  uploadZipPath,
 })
 if (!verification.ok) {
   console.error(`Release package missing required files:\n${verification.missing.join('\n')}`)
   process.exit(1)
 }
 
-console.log(`Release package created at ${releaseRoot}, ${packageZipPath}, and ${uploadZipPath}`)
+console.log(`Release package created at ${releaseRoot} and ${packageZipPath}`)
 
 function copyDirectory(from: string, to: string): void {
   if (!existsSync(from)) return

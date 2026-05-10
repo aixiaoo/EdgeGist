@@ -341,9 +341,9 @@ describe('Gist API contract', () => {
         body: JSON.stringify({
           accountId: 'account-id',
           apiToken: 'secret-token',
-          pagesProjectName: 'edge-gist',
+          workerScriptName: 'edge-gist',
           d1DatabaseId: 'database-id',
-          pagesPlan: 'pro',
+          workersPlan: 'paid',
           d1Plan: 'paid',
         }),
       },
@@ -354,7 +354,7 @@ describe('Gist API contract', () => {
     const saved = (await saveResponse.json()) as Record<string, any>
     expect(saved.hasApiToken).toBe(true)
     expect(saved.apiToken).toBeUndefined()
-    expect(saved.pagesPlan).toBe('pro')
+    expect(saved.workersPlan).toBe('paid')
     expect(saved.d1Plan).toBe('paid')
 
     const readResponse = await app.request('/owner/_edgegist/api/cloudflare/settings', { headers: ownerHeaders() }, env)
@@ -823,8 +823,8 @@ describe('Gist API contract', () => {
           apiToken: 'cloudflare-token',
           d1DatabaseId: 'database-id',
           d1Plan: 'free',
-          pagesPlan: 'free',
-          pagesProjectName: 'edge-gist',
+          workersPlan: 'free',
+          workerScriptName: 'edge-gist',
         }),
       },
       env,
@@ -894,7 +894,7 @@ describe('Gist API contract', () => {
       accountId: 'account-id',
       d1DatabaseId: 'database-id',
       hasApiToken: true,
-      pagesProjectName: 'edge-gist',
+      workerScriptName: 'edge-gist',
     })
   })
 

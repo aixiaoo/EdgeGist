@@ -56,15 +56,15 @@ export type GistDetail = GistSummary & {
   history: GistHistoryItem[]
 }
 
-export type PagesPlan = 'free' | 'pro' | 'business' | 'enterprise'
+export type WorkersPlan = 'free' | 'paid'
 export type D1Plan = 'free' | 'paid'
 
 export type CloudflareSettings = {
   accountId: string
   hasApiToken: boolean
-  pagesProjectName: string
+  workerScriptName: string
   d1DatabaseId: string
-  pagesPlan: PagesPlan
+  workersPlan: WorkersPlan
   d1Plan: D1Plan
 }
 
@@ -75,29 +75,19 @@ export type CloudflareSettingsInput = Omit<CloudflareSettings, 'hasApiToken'> & 
 export type CloudflareUsage = {
   fetchedAt: string
   settings: CloudflareSettings
-  pages: {
-    projectName: string
-    projectId: string | null
-    productionBranch: string | null
-    usesFunctions: boolean
-    functionsScriptName: string | null
-    functionsRequests: number | null
-    functionsRequestLimit: number | null
-    functionsRequestPercent: number | null
-    functionsErrors: number | null
-    functionsSubrequests: number | null
-    functionsCpuTimeP99Ms: number | null
-    functionsWindowStart: string | null
-    functionsWindowEnd: string | null
-    latestDeployment: {
-      id: string | null
-      url: string | null
-      createdOn: string | null
-      status: string | null
-    }
-    deploymentsThisMonth: number
-    deploymentLimit: number | null
-    deploymentPercent: number | null
+  workers: {
+    scriptName: string
+    requests: number
+    workerRequests: number
+    pagesFunctionsRequests: number
+    scriptRequests: number
+    requestLimit: number | null
+    requestPercent: number | null
+    errors: number
+    subrequests: number
+    cpuTimeP99Ms: number | null
+    windowStart: string
+    windowEnd: string
   }
   d1: {
     databaseId: string

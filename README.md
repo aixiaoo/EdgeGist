@@ -9,7 +9,7 @@
 
 [简体中文](README.zh-CN.md)
 
-Minimal GitHub Gist-compatible API service running on Cloudflare's edge network, backed by D1 and packaged for Cloudflare Pages.
+Minimal GitHub Gist-compatible API service running on Cloudflare's edge network, backed by D1 and deployed on Cloudflare Workers with static assets.
 
 Works perfectly with the [Sub-Store](https://github.com/sub-store-org/Sub-Store) Gist sharing and backup features.
 
@@ -47,7 +47,7 @@ The Web UI supports English and Simplified Chinese. The screenshots below use Si
     <td width="50%" valign="top" align="center">
       <img src="screenshots/readme/usage.png" alt="Cloudflare usage and quota dashboard on a compact viewport" width="100%">
       <br>
-      <sub>Cached and refreshable Cloudflare Pages Functions, Pages build, D1 row, and D1 storage usage.</sub>
+      <sub>Cached and refreshable Cloudflare Workers request, D1 row, and D1 storage usage.</sub>
     </td>
   </tr>
   <tr>
@@ -70,7 +70,7 @@ The Web UI supports English and Simplified Chinese. The screenshots below use Si
 - GitHub Gist-style Web UI at `/<owner>`, `/<owner>/new`, `/<owner>/<gist_id>`, and `/<owner>/<gist_id>/<sha>` with anonymous public browsing, owner management, gist editing, file history, diff view, stars, import/export, i18n, themes, PWA install support, and Cloudflare usage/quota views.
 - Root `/` returns `404` and does not redirect to the owner route. Anonymous users need to know `/<owner>` to browse public gists.
 - Real single-owner star support; fork and comment surfaces remain compatibility mocks with zero social data.
-- Release packaging for Cloudflare Pages, including Direct Upload zips.
+- Release packaging for Cloudflare Workers, including prebuilt Worker assets.
 
 Not in the first implementation: git repository transport, multi-user collaboration, and real social features.
 
@@ -110,187 +110,251 @@ bun run test
 bun run build
 ```
 
-Use `bun run dev:prepare` when you only want to create local config and apply local D1 migrations. Use `bun run dev:server` when local D1 is already prepared and you only want to restart the server. `bun run build` creates the client assets and Cloudflare Pages worker under `dist/`.
+Use `bun run dev:prepare` when you only want to create local config and apply local D1 migrations. Use `bun run dev:server` when local D1 is already prepared and you only want to restart the server. `bun run build` creates the client assets, Worker script, and Workers Assets ignore file under `dist/`.
 
 If you used an older development build before the schema stabilized and local D1 starts failing, delete `.wrangler/state/v3` and run `bun run dev:prepare` again. EdgeGist keeps source migrations clean for new installs and does not carry compatibility migrations for stale development data.
 
 ## Configuration
 
-Tracked configuration lives in example files. Your real deployment config is ignored by git.
+`wrangler.jsonc` is the deployment source of truth. Copy `wrangler.example.jsonc` to `wrangler.jsonc` and fill in the project-specific values. Do not commit `wrangler.jsonc` when it contains real credentials or account-specific IDs.
 
-```sh
-cp wrangler.example.jsonc wrangler.jsonc
-```
+### Worker and asset fields
 
-Edit `wrangler.jsonc`:
+| Field | Required | Value |
+| --- | --- | --- |
+| `name` | Yes | Worker script name. For this deployment it is usually `edge-gist`. The Usage page's `Worker name` field should match this value when you want script-level request usage. |
+| `compatibility_date` | Yes | Cloudflare Workers compatibility date. Keep the example value unless you intentionally update runtime behavior. |
+| `main` | Yes | `./dist/_worker.js`. The build outputs the Worker script here. |
+| `assets.directory` | Yes | `./dist`. Static files are uploaded as Workers Assets from this directory. |
+| `assets.binding` | Yes for this project | `ASSETS`. Keep the binding name unless the Worker code is changed to use a different assets binding. |
 
-- `name`: Cloudflare Pages project name.
-- `EDGEGIST_OWNER_USERNAME`: owner login shown in API responses.
-- `EDGEGIST_OWNER_PASSWORD`: password for the owner web UI at `/<owner>`.
-- `EDGEGIST_OWNER_TOKEN`: token used by Gist API clients in `Authorization: Bearer ...`.
-- `EDGEGIST_BASE_URL`: your deployed URL.
-- `EDGEGIST_HISTORY_MAX_VERSIONS`: keep this many latest history entries for each file and this many latest file-change records for each gist. Defaults to `100`.
-- `EDGEGIST_TURNSTILE_SITE_KEY` and `EDGEGIST_TURNSTILE_SECRET_KEY`: optional Cloudflare Turnstile keys for protecting the owner login form. Configure both values together, or leave both empty to disable Turnstile.
-- `database_id`: D1 database id created in Cloudflare.
+The build copies `.assetsignore` into `dist` so `_worker.js` is not served as a static asset.
 
-Do not commit `wrangler.jsonc` or `.dev.vars`.
+### Application variables in `vars`
 
-History retention:
+| Field | Required | Value |
+| --- | --- | --- |
+| `EDGEGIST_OWNER_USERNAME` | Yes | Owner login username. |
+| `EDGEGIST_OWNER_PASSWORD` | Yes | Owner login password. |
+| `EDGEGIST_OWNER_TOKEN` | Yes | Owner access token for API/client operations. Keep it secret. |
+| `EDGEGIST_BASE_URL` | Yes | Public origin with protocol, for example `https://edge-gist.sbfm.eu.org`. Use the final Workers custom domain, not a Pages URL. |
+| `EDGEGIST_HISTORY_MAX_VERSIONS` | Optional | Number of retained history entries per file and file-change records per gist. Defaults to `100`. |
+| `EDGEGIST_TURNSTILE_SITE_KEY` | Optional | Cloudflare Turnstile site key. Leave blank to disable Turnstile. |
+| `EDGEGIST_TURNSTILE_SECRET_KEY` | Optional | Cloudflare Turnstile secret key. Required only when the site key is set. |
+
+Local development can use `.dev.vars`. Production reads values from `wrangler.jsonc` `vars` during deploy.
+
+### D1 binding in `d1_databases`
+
+| Field | Required | Value |
+| --- | --- | --- |
+| `binding` | Yes | Must be `DB`. The backend reads the database from `c.env.DB`. |
+| `database_name` | Yes | D1 database display name, usually `edge-gist`. |
+| `database_id` | Yes | D1 database UUID from `wrangler d1 create` or the Cloudflare dashboard. This is an ID, not the database name. |
+
+Use the same D1 database UUID in the app's Cloudflare Usage settings when you want D1 usage and quota data.
+
+### Custom domain
+
+A custom domain can be attached in either place:
+
+1. In `wrangler.jsonc` before deploy:
 
 ```jsonc
-"EDGEGIST_HISTORY_MAX_VERSIONS": "100"
+{
+  "routes": [
+    { "pattern": "edge-gist.sbfm.eu.org", "custom_domain": true }
+  ]
+}
 ```
 
-Security defaults:
+2. Manually in the Cloudflare dashboard: Workers & Pages -> select the Worker -> Settings -> Domains & Routes -> Add -> Custom Domain.
 
-- EdgeGist sends `X-Robots-Tag: noindex, nofollow, noarchive`, includes a `robots` meta tag, and ships `robots.txt` with `Disallow: /` to prevent search engines from indexing public, secret-link, raw, and Web UI pages.
-- Root `/` returns `404` instead of redirecting to `/<owner>`, so visitors do not learn the configured owner username from the landing URL.
-- Turnstile is optional. Create a Turnstile widget in the Cloudflare dashboard, add the site key and secret key to the two environment variables above, then redeploy. EdgeGist renders the widget on the owner login form, validates the token server-side with Cloudflare Siteverify before checking username and password, then uses a signed session cookie for the owner UI. Bearer owner tokens still work for API clients. Local development requests served from `localhost`, `127.0.0.1`, `0.0.0.0`, or `[::1]` always skip Turnstile so the owner UI remains usable offline and without a localhost Turnstile widget.
+Cloudflare requires the hostname to be in a Cloudflare zone you control. If Wrangler fails to create the custom domain because of DNS or token permissions, deploy the Worker first, then attach the domain manually in the dashboard.
 
-PWA behavior:
-
-- The install manifest is served from `/<owner>/manifest.webmanifest`, with `start_url` and `scope` limited to `/<owner>`.
-- The service worker is served from `/<owner>/edgegist-sw` and only caches static app assets and icons. It does not cache API responses, raw file content, or rendered gist pages.
-
+No KV, R2, Queues, or Workers Sites configuration is required for this project.
 ## Command-Line Deployment
 
-Requirements: Bun, Wrangler, and a Cloudflare account.
+This project deploys to Cloudflare Workers with Workers Assets. Use `wrangler deploy`; do not use `wrangler pages deploy`.
 
-```sh
+### Fresh deployment
+
+Prerequisites: Bun, Node.js compatible with this project, Wrangler 4+, and access to the target Cloudflare account.
+
+1. Install dependencies:
+
+```bash
 bun install
+```
+
+2. Create the D1 database and record the returned UUID:
+
+```bash
 bun run db:create
 ```
 
-This creates a Cloudflare D1 database named `edge-gist`. Copy the created D1 database id into `wrangler.jsonc`, then deploy:
+3. Create the production Wrangler config:
 
-```sh
+```bash
+cp wrangler.example.jsonc wrangler.jsonc
+```
+
+4. Edit `wrangler.jsonc`:
+
+| Area | What to set |
+| --- | --- |
+| Worker | `name`, normally `edge-gist`. |
+| Owner auth | `EDGEGIST_OWNER_USERNAME`, `EDGEGIST_OWNER_PASSWORD`, and `EDGEGIST_OWNER_TOKEN`. |
+| Public URL | `EDGEGIST_BASE_URL`, for example `https://edge-gist.sbfm.eu.org`. |
+| D1 | `d1_databases[0].database_id` with the D1 UUID. Keep `binding` as `DB`. |
+| Custom domain | Optional `routes` entry with `{ "pattern": "your-domain.example.com", "custom_domain": true }`. |
+| Turnstile | Optional site key and secret key. Set both or leave both blank. |
+
+5. Apply database migrations to the remote D1 database:
+
+```bash
 bun run db:migrate:remote
+```
+
+6. Build the Worker and static assets:
+
+```bash
 bun run build
+```
+
+7. Deploy:
+
+```bash
 bun run deploy
 ```
 
-Use your deployed Pages URL as the Gist API base URL and `EDGEGIST_OWNER_TOKEN` as the token.
+If you are not logged in with Wrangler, provide a token for this command only:
 
-## Manual Cloudflare Deployment
-
-Use this path if you cannot build locally.
-
-1. Open the latest GitHub Release.
-2. Download `edgegist-upload.zip` and `edgegist-package.zip`.
-3. In Cloudflare Dashboard, open D1 and create a database named `edge-gist`.
-4. Open the new D1 database console, copy every SQL file under `migrations/` from `edgegist-package.zip`, and run them in filename order.
-5. Create a Cloudflare Pages project with Direct Upload and upload `edgegist-upload.zip`.
-6. In Pages settings, add the environment variables listed above.
-7. In Pages Functions settings, add a D1 binding with variable name `DB` and select the `edge-gist` database.
-8. Redeploy the latest upload if Cloudflare asks for a new deployment after settings changes.
-
-## AI-Assisted Deployment
-
-Use this path if you want an AI coding agent to deploy from your local checkout.
-
-1. Tell the agent your Cloudflare Pages project name, owner username, and final base URL or custom domain.
-2. Ask the agent to generate `EDGEGIST_OWNER_TOKEN` and `EDGEGIST_OWNER_PASSWORD`, or provide your own values.
-3. Let the agent run `wrangler login`; complete the Cloudflare browser authorization yourself.
-4. Let the agent create the `edge-gist` D1 database, write `wrangler.jsonc`, apply migrations, build, deploy, and verify `/<owner>`.
-5. If you use a custom domain, add it in Cloudflare Pages and point DNS to the Pages project.
-
-Do not send Cloudflare account passwords to an AI agent. Use Wrangler OAuth login or a narrowly scoped Cloudflare API token.
-
-### Cloudflare Account API Token For Deployment
-
-Wrangler can deploy with OAuth login, or with `CLOUDFLARE_API_TOKEN`. For a durable deployment credential, use an Account API token instead of a User API token. Account API tokens are owned by the Cloudflare account and are better suited for CI/CD and long-lived integrations.
-
-To create a token for deployment:
-
-1. Open Cloudflare Dashboard > Manage Account > Account API Tokens.
-2. Select Create Token.
-3. Name it, for example `edge-gist-deploy`.
-4. Add permission `Account` > `Cloudflare Pages` > `Edit`.
-5. Under Account Resources, select only the account that owns the `edge-gist` Pages project.
-6. Continue to summary, create the token, and copy it once.
-
-Use it only as an environment variable when deploying:
-
-```sh
+```bash
 CLOUDFLARE_API_TOKEN=<token> bun run deploy
 ```
 
-For CI, also set `CLOUDFLARE_ACCOUNT_ID` to the same account ID.
+8. If you did not configure `routes`, attach the custom domain manually in the Cloudflare dashboard. After the domain is active, make sure `EDGEGIST_BASE_URL` matches that URL and redeploy if you changed it.
 
-## Usage And Quota
+### Manual Cloudflare Workers deployment from a release package
 
-The owner Web UI at `/<owner>` can show Cloudflare Pages and D1 usage after you save Cloudflare settings in the Usage and quota page. These settings are stored in EdgeGist's D1 `settings` table under the `cloudflare` key. The API token is write-only from the browser's point of view; the owner settings API returns only `hasApiToken`.
+Use this path when you download `edgegist-package.zip` and do not want to build locally.
 
-Usage data is cached in the D1 `settings` table under the `cloudflare_usage_cache` key. Opening the Usage and quota page shows cached data when available. The UI also has an auto-refresh toggle that fetches fresh Cloudflare data once when you enter the page.
+1. Unzip `edgegist-package.zip`.
+2. Create or select a D1 database in Cloudflare.
+3. Run the SQL files in `migrations/` against that D1 database, in filename order.
+4. Copy `wrangler.example.jsonc` to `wrangler.jsonc` inside the extracted package.
+5. Fill in the same fields described in the Configuration section: owner auth, `EDGEGIST_BASE_URL`, D1 `database_id`, optional Turnstile, and optional `routes`.
+6. Deploy with Wrangler 4+:
 
-The Data page exports and imports all owner gist data and all rows in the D1 `settings` table. Import replaces the current EdgeGist data set. Treat export files as sensitive because saved settings can include Cloudflare API tokens.
-
-Use an Account API token here as well. Pages, D1, and Account Analytics are compatible with Account API tokens, and the token can keep working even if an individual user leaves the account.
-
-To create the Cloudflare API token used by this page:
-
-1. Open Cloudflare Dashboard > Manage Account > Account API Tokens.
-2. Select Create Token.
-3. Name it, for example `edge-gist-usage`.
-4. Add permissions:
-   - `Account` > `Cloudflare Pages` > `Read`
-   - `Account` > `D1` > `Read`
-   - `Account` > `Account Analytics` > `Read`
-5. Under Account Resources, select only the account that owns the Pages project and D1 database.
-6. Create the token and paste it into `/<owner>` > Usage and quota > API token.
-
-If you want one token to both deploy and read usage, use `Cloudflare Pages: Edit` instead of `Read`. If you also want to run D1 migrations with the same token, use `D1: Edit` instead of `Read`.
-
-Cloudflare settings fields:
-
-- `Account ID`: Cloudflare account ID. It is used for all Cloudflare REST and GraphQL API calls.
-- `API token`: a Cloudflare API token with read access to the Pages project, D1 database, and account analytics/GraphQL data used by the dashboard. Leave this field blank when editing if you want to keep the saved token.
-- `Pages project`: the Cloudflare Pages project name, the same project slug used by `wrangler pages deploy --project-name`.
-- `D1 database ID`: the D1 database UUID. You can get it from the D1 dashboard or `wrangler d1 info edge-gist`.
-- `Pages plan`: selects the official Pages quota table used for `Builds this month`.
-- `Workers/D1 plan`: selects the official D1 quota table and Workers request quota window. Free uses daily row quotas and daily Workers request usage; Paid uses monthly included row quotas and monthly Workers request usage.
-
-Usage fields and sources:
-
-- `Updated at`: the time EdgeGist last fetched and cached Cloudflare usage data.
-- `Project`, `Production branch`, `Functions`, `Functions script`, and `Latest deployment`: Cloudflare REST API `GET /accounts/{account_id}/pages/projects/{project_name}`.
-- `Today’s requests` / `This month’s requests`: Cloudflare GraphQL Analytics API using `pagesFunctionsInvocationsAdaptiveGroups` filtered by the Pages project `production_script_name`. This matches the Workers & Pages quota card because Pages Functions requests count toward Workers request usage. Workers Free uses `100,000` requests/day; Workers Paid shows the `10,000,000` monthly included requests.
-- `Builds this month`: Cloudflare REST API `GET /accounts/{account_id}/pages/projects/{project_name}/deployments`, counted for the current UTC month. Limits come from the Cloudflare Pages limits table: Free `500`, Pro `5,000`, Business `20,000`, Enterprise shows no fixed monthly build limit.
-- `Database`: Cloudflare REST API `GET /accounts/{account_id}/d1/database/{database_id}`.
-- `Usage window`: Free D1 shows the current UTC day; Paid D1 shows the current UTC month, matching the quota periods in Cloudflare D1 pricing.
-- `Read queries`, `Write queries`, `Rows read`, `Rows written`, and `Database size`: Cloudflare GraphQL Analytics API using `d1AnalyticsAdaptiveGroups` and `d1StorageAdaptiveGroups`. D1 analytics are retained for the past 31 days.
-- `Rows read` and `Rows written` limits: Cloudflare D1 pricing, Free `5,000,000` rows read/day and `100,000` rows written/day, Paid `25,000,000,000` rows read/month included and `50,000,000` rows written/month included.
-- `Database size` limit: Cloudflare D1 per-database limits, Free `500 MB`, Workers Paid `10 GB`.
-
-Official references: [Cloudflare Pages limits](https://developers.cloudflare.com/pages/platform/limits/), [Cloudflare Pages Functions pricing](https://developers.cloudflare.com/pages/functions/pricing/), [Cloudflare Workers GraphQL metrics](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-workers-metrics/), [Cloudflare D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [Cloudflare D1 limits](https://developers.cloudflare.com/d1/platform/limits/), and [Cloudflare D1 metrics and analytics](https://developers.cloudflare.com/d1/observability/metrics-analytics/).
-
-## Updating
-
-Command-line users:
-
-```sh
-git pull
-bun install --frozen-lockfile
-bun run db:migrate:remote
-bun run build
-bun run deploy
+```bash
+wrangler deploy
 ```
 
-Manual users:
+Or, without a globally installed Wrangler:
 
-1. Download the new `edgegist-upload.zip` from GitHub Releases.
-2. If the release notes mention migrations, copy the new SQL from `edgegist-package.zip` and run it in the D1 console.
-3. Upload the new `edgegist-upload.zip` to the same Cloudflare Pages project.
-4. Keep your existing environment variables and D1 binding unless release notes say otherwise.
+```bash
+npx wrangler@^4 deploy
+```
 
+The release package already contains `dist/_worker.js` and static assets, so no build command is required.
+
+### Manual Cloudflare dashboard steps
+
+Some operations are intentionally manual or account-specific:
+
+| Operation | Where |
+| --- | --- |
+| Create API tokens | Cloudflare dashboard -> My Profile -> API Tokens. |
+| Create D1 database | Cloudflare dashboard -> Workers & Pages -> D1, or `bun run db:create`. |
+| Apply migrations manually | Cloudflare dashboard -> D1 -> database -> Console. |
+| Attach custom domain | Cloudflare dashboard -> Workers & Pages -> Worker -> Settings -> Domains & Routes. |
+| Configure Usage page fields | Edge Gist app -> Settings -> Cloudflare Usage. |
+## Usage And Quota
+
+The Cloudflare Usage page is configured from the app UI and stored in D1. These fields are not deployment variables in `wrangler.jsonc`.
+
+### Required Cloudflare fields in the app
+
+| UI field | Required | Value |
+| --- | --- | --- |
+| `Account ID` | Yes | Cloudflare account ID that owns the Worker and D1 database. |
+| `API token` | Yes | Cloudflare API token used only for reading usage data. Required permissions are `Account Analytics Read` and `D1 Read`. |
+| `Worker name` | Optional for account total, required for current-Worker usage | Worker script name, usually the `name` from `wrangler.jsonc`, for example `edge-gist`. If blank or wrong, account total usage can still load, but the `This Worker requests` value will be unavailable or zero. |
+| `D1 database ID` | Yes for D1 usage | D1 database UUID. The database name is not accepted here. |
+| `Workers plan` | Yes | Select `Free` or `Paid` so the UI can use the correct Workers request quota. |
+| `D1 plan` | Yes | Select `Free` or `Paid` so the UI can use the correct D1 row/storage quotas. |
+
+### What the Usage page shows
+
+| Section | Meaning |
+| --- | --- |
+| Workers requests | Account-level Workers request quota usage for the displayed usage window. The total includes Workers script invocations and legacy Pages Functions invocations when Cloudflare reports them, because Cloudflare's quota dashboard can include both. |
+| This Worker requests | Requests for the configured `Worker name` only. This is useful for seeing how much of the account total came from this app. |
+| Workers account requests | Account-level Workers script invocations. |
+| Pages Functions requests | Legacy Pages Functions requests, shown only when Cloudflare reports a non-zero value. |
+| Errors | Combined error count for the Workers/Pages Functions usage window. |
+| D1 database usage | Read queries, write queries, rows read, rows written, and database size for the configured D1 database ID. |
+
+Usage windows are displayed with the browser's `toLocaleString()` formatting. The Usage page caches the last successful response in D1 so the dashboard can still show recent data if Cloudflare's API is temporarily unavailable.
+
+Cloudflare analytics can lag behind real time. Small differences from the Cloudflare dashboard are expected when the dashboard and the app use slightly different aggregation windows or when Cloudflare has not finished processing the latest data.
+## Updating
+
+### Git-based deployment
+
+1. Pull the latest source.
+2. Run `bun install` if dependencies changed.
+3. Review `wrangler.example.jsonc` for newly added fields and copy them into your private `wrangler.jsonc` without overwriting real credentials or IDs.
+4. Run any new D1 migrations with `bun run db:migrate:remote`.
+5. Run `bun run build`.
+6. Deploy with `bun run deploy`.
+
+### Release-package deployment
+
+1. Download and unzip the latest `edgegist-package.zip`.
+2. Copy your existing `wrangler.jsonc` into the extracted package.
+3. Review `wrangler.example.jsonc` for newly added fields and add missing values to your copied config.
+4. Run any new SQL files in `migrations/` against your D1 database.
+5. Deploy with `wrangler deploy` or `npx wrangler@^4 deploy`.
+
+After updates that touch Cloudflare usage, open Settings -> Cloudflare Usage and confirm the saved `Account ID`, `Worker name`, `D1 database ID`, and plan selections still match your Cloudflare account.
+
+## Cloudflare Account API Token For Deployment
+
+For local or CI deployment with `CLOUDFLARE_API_TOKEN`, create a Cloudflare API token scoped to the target account.
+
+Minimum permissions for the deploy flow:
+
+| Permission | Why |
+| --- | --- |
+| `Workers Scripts Edit` | Upload and update the Worker script and assets with `wrangler deploy`. |
+| `D1 Edit` | Create D1 databases and apply remote D1 migrations when using Wrangler commands. |
+
+If the same token is also used in the app's Cloudflare Usage settings, add:
+
+| Permission | Why |
+| --- | --- |
+| `Account Analytics Read` | Read Workers and D1 analytics through Cloudflare GraphQL. |
+| `D1 Read` | Read D1 database metadata, including database size. |
+
+For custom domains configured through `routes`, the token must also be allowed to operate on the Cloudflare zone that owns the hostname. If that fails, deploy the Worker without `routes` and add the custom domain manually in the Cloudflare dashboard.
+
+Recommended CI secrets:
+
+| Secret | Value |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Deployment token. |
+| `CLOUDFLARE_ACCOUNT_ID` | Target Cloudflare account ID. |
+
+Do not put Cloudflare API tokens in `wrangler.jsonc`, README files, or committed source files.
 ## GitHub Releases
 
 Bump `package.json` version and merge or push that change to the default branch to cut a release. The Release workflow can also be run manually from GitHub Actions.
 
 The workflow reads `package.json` for the package name and version, uses `v${version}` as the release tag, fails if that release already exists or if the tag points at a different commit, then runs tests, builds, packages, generates conventional release notes, creates the tag when needed, and publishes:
 
-- `edgegist-upload.zip`: direct Cloudflare Pages dashboard upload. `_worker.js` is at the zip root.
-- `edgegist-package.zip`: README files, migrations, example config, and build output.
+- `edgegist-package.zip`: README files, migrations, example config, prebuilt Worker script, and static assets.
 - `SHA256SUMS`: checksums for release assets.
 
 ## API Compatibility

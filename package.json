@@ -1,6 +1,6 @@
 {
   "name": "edge-gist",
-  "version": "0.1.3",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Minimal GitHub Gist-compatible API service running on Cloudflare's edge network.",
@@ -8,7 +8,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:prepare": "node scripts/dev.mjs --prepare-only",
     "dev:server": "node scripts/dev.mjs --server-only",
-    "build": "vite build --mode client && vite build",
+    "build": "vite build --mode client && vite build && node scripts/copy-assetsignore.mjs",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:unit": "bun test tests/unit",
@@ -16,7 +16,7 @@
     "db:create": "wrangler d1 create edge-gist",
     "db:migrate:local": "wrangler d1 migrations apply edge-gist --local",
     "db:migrate:remote": "wrangler d1 migrations apply edge-gist --remote",
-    "deploy": "wrangler pages deploy dist --project-name edge-gist",
+    "deploy": "wrangler deploy",
     "release:notes": "bun scripts/generate-release-notes.ts",
     "release:package": "bun run build && bun scripts/package-release.ts",
     "release:verify": "bun scripts/verify-release.ts",
@@ -69,6 +69,6 @@
     "tailwindcss": "^4.2.4",
     "typescript": "latest",
     "vite": "latest",
-    "wrangler": "latest"
+    "wrangler": "^4.0.0"
   }
 }

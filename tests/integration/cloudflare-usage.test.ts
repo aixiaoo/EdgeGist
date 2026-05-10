@@ -9,7 +9,7 @@ afterEach(() => {
 })
 
 describe('Cloudflare usage API', () => {
-  test('uses Cloudflare-safe Pages deployment pagination options', async () => {
+  test('fetches Workers and D1 usage from Cloudflare', async () => {
     const app = createApp()
     const env = createTestEnv()
     const requestedUrls: string[] = []
@@ -33,7 +33,7 @@ describe('Cloudflare usage API', () => {
                 {
                   d1AnalyticsAdaptiveGroups: [],
                   d1StorageAdaptiveGroups: [],
-                  pagesFunctionsInvocationsAdaptiveGroups: [
+                  accountWorkers: [
                     {
                       sum: {
                         errors: 1,
@@ -45,6 +45,24 @@ describe('Cloudflare usage API', () => {
                       },
                     },
                   ],
+                  scriptWorkers: [
+                    {
+                      sum: {
+                        errors: 0,
+                        requests: 100,
+                        subrequests: 2,
+                      },
+                    },
+                  ],
+                  pagesFunctionsInvocationsAdaptiveGroups: [
+                    {
+                      sum: {
+                        errors: 0,
+                        requests: 60,
+                        subrequests: 1,
+                      },
+                    },
+                  ],
                 },
               ],
             },
@@ -52,37 +70,10 @@ describe('Cloudflare usage API', () => {
         })
       }
 
-      if (parsed.pathname.endsWith('/pages/projects/edge-gist/deployments')) {
-        return cloudflareResponse([
-          {
-            id: 'deployment-id',
-            created_on: new Date().toISOString(),
-            latest_stage: { status: 'success' },
-            url: 'https://deployment.edge-gist.pages.dev',
-          },
-        ], {
-          count: 1,
-          page: 1,
-          per_page: 20,
-          total_count: 1,
-          total_pages: 1,
-        })
-      }
-
       if (parsed.pathname.endsWith('/d1/database/database-id')) {
         return cloudflareResponse({
           name: 'edge-gist',
           file_size: 1024,
-        })
-      }
-
-      if (parsed.pathname.endsWith('/pages/projects/edge-gist')) {
-        return cloudflareResponse({
-          id: 'project-id',
-          name: 'edge-gist',
-          production_script_name: 'pages-worker--edge-gist-production',
-          production_branch: 'main',
-          uses_functions: true,
         })
       }
 
@@ -97,9 +88,9 @@ describe('Cloudflare usage API', () => {
         body: JSON.stringify({
           accountId: 'account-id',
           apiToken: 'secret-token',
-          pagesProjectName: 'edge-gist',
+          workerScriptName: 'edge-gist',
           d1DatabaseId: 'database-id',
-          pagesPlan: 'free',
+          workersPlan: 'free',
           d1Plan: 'free',
         }),
       },
@@ -110,20 +101,17 @@ describe('Cloudflare usage API', () => {
     expect(response.status).toBe(200)
     const usage = await response.json() as Record<string, unknown>
     expect(usage.fetchedAt).toBeString()
-    expect((usage.pages as Record<string, unknown>).functionsRequests).toBe(139)
-    expect((usage.pages as Record<string, unknown>).functionsRequestLimit).toBe(100_000)
-    expect((usage.pages as Record<string, unknown>).functionsRequestPercent).toBe(0.1)
-    expect((usage.pages as Record<string, unknown>).functionsErrors).toBe(1)
-    expect((usage.pages as Record<string, unknown>).functionsSubrequests).toBe(4)
+    expect((usage.workers as Record<string, unknown>).requests).toBe(199)
+    expect((usage.workers as Record<string, unknown>).workerRequests).toBe(139)
+    expect((usage.workers as Record<string, unknown>).pagesFunctionsRequests).toBe(60)
+    expect((usage.workers as Record<string, unknown>).scriptRequests).toBe(100)
+    expect((usage.workers as Record<string, unknown>).requestLimit).toBe(100_000)
+    expect((usage.workers as Record<string, unknown>).requestPercent).toBe(0.2)
+    expect((usage.workers as Record<string, unknown>).errors).toBe(1)
+    expect((usage.workers as Record<string, unknown>).subrequests).toBe(5)
+    expect(graphqlQueries.some((body) => body.includes('workersInvocationsAdaptive'))).toBe(true)
     expect(graphqlQueries.some((body) => body.includes('pagesFunctionsInvocationsAdaptiveGroups'))).toBe(true)
-    expect(graphqlQueries.some((body) => body.includes('workersInvocationsAdaptive'))).toBe(false)
-    expect(graphqlQueries.some((body) => body.includes('pages-worker--edge-gist-production'))).toBe(true)
-
-    const deploymentsUrl = requestedUrls.find((url) => url.includes('/pages/projects/edge-gist/deployments'))
-    expect(deploymentsUrl).toBeDefined()
-    expect(new URL(deploymentsUrl!).searchParams.get('page')).toBe('1')
-    expect(new URL(deploymentsUrl!).searchParams.get('per_page')).toBe('20')
-    expect(deploymentsUrl).not.toContain('per_page=100')
+    expect(graphqlQueries.some((body) => body.includes('scriptName'))).toBe(true)
 
     requestedUrls.length = 0
     const cachedResponse = await app.request('/owner/_edgegist/api/cloudflare/usage', { headers: ownerHeaders() }, env)

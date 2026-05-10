@@ -103,17 +103,17 @@ export function createApp() {
       ? {
           accountId: settings.accountId,
           hasApiToken: Boolean(settings.apiToken),
-          pagesProjectName: settings.pagesProjectName,
+          workerScriptName: settings.workerScriptName,
           d1DatabaseId: settings.d1DatabaseId,
-          pagesPlan: settings.pagesPlan,
+          workersPlan: settings.workersPlan,
           d1Plan: settings.d1Plan,
         }
       : {
           accountId: '',
           hasApiToken: false,
-          pagesProjectName: '',
+          workerScriptName: '',
           d1DatabaseId: '',
-          pagesPlan: 'free',
+          workersPlan: 'free',
           d1Plan: 'free',
         })
   })

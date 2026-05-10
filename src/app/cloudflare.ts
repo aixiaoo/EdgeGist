@@ -3,18 +3,21 @@ import { badRequest } from '../http/errors'
 
 const settingsKey = 'cloudflare'
 const usageCacheKey = 'cloudflare_usage_cache'
-const pagesDeploymentsPerPage = 20
-const pagesDeploymentsPageLimit = 50
 
-export type PagesPlan = 'free' | 'pro' | 'business' | 'enterprise'
+export type WorkersPlan = 'free' | 'paid'
 export type D1Plan = 'free' | 'paid'
+
+type LegacyCloudflareSettings = {
+  pagesProjectName?: string
+  pagesPlan?: 'free' | 'pro' | 'business' | 'enterprise'
+}
 
 export type CloudflareSettings = {
   accountId: string
   apiToken: string
-  pagesProjectName: string
+  workerScriptName: string
   d1DatabaseId: string
-  pagesPlan: PagesPlan
+  workersPlan: WorkersPlan
   d1Plan: D1Plan
 }
 
@@ -25,29 +28,19 @@ export type PublicCloudflareSettings = Omit<CloudflareSettings, 'apiToken'> & {
 export type CloudflareUsage = {
   fetchedAt: string
   settings: PublicCloudflareSettings
-  pages: {
-    projectName: string
-    projectId: string | null
-    productionBranch: string | null
-    usesFunctions: boolean
-    functionsScriptName: string | null
-    functionsRequests: number | null
-    functionsRequestLimit: number | null
-    functionsRequestPercent: number | null
-    functionsErrors: number | null
-    functionsSubrequests: number | null
-    functionsCpuTimeP99Ms: number | null
-    functionsWindowStart: string | null
-    functionsWindowEnd: string | null
-    latestDeployment: {
-      id: string | null
-      url: string | null
-      createdOn: string | null
-      status: string | null
-    }
-    deploymentsThisMonth: number
-    deploymentLimit: number | null
-    deploymentPercent: number | null
+  workers: {
+    scriptName: string
+    requests: number
+    workerRequests: number
+    pagesFunctionsRequests: number
+    scriptRequests: number
+    requestLimit: number | null
+    requestPercent: number | null
+    errors: number
+    subrequests: number
+    cpuTimeP99Ms: number | null
+    windowStart: string
+    windowEnd: string
   }
   d1: {
     databaseId: string
@@ -77,7 +70,7 @@ export async function readCloudflareSettings(db: D1DatabaseLike): Promise<Cloudf
   if (!row) return null
 
   try {
-    const parsed = JSON.parse(row.value) as Partial<CloudflareSettings>
+    const parsed = JSON.parse(row.value) as Partial<CloudflareSettings> & LegacyCloudflareSettings
     return normalizeSettings(parsed, parsed.apiToken ?? '')
   } catch {
     return null
@@ -93,21 +86,23 @@ export async function saveCloudflareSettings(
   }
 
   const existing = await readCloudflareSettings(db)
-  const incoming = payload as Partial<CloudflareSettings>
+  const incoming = payload as Partial<CloudflareSettings> & LegacyCloudflareSettings
   const apiToken = incoming.apiToken?.trim() || existing?.apiToken || ''
+  const hasLegacyPagesPlan = incoming.pagesPlan !== undefined
   const next = normalizeSettings(
     {
       accountId: incoming.accountId,
-      pagesProjectName: incoming.pagesProjectName,
+      workerScriptName: incoming.workerScriptName ?? incoming.pagesProjectName,
       d1DatabaseId: incoming.d1DatabaseId,
-      pagesPlan: incoming.pagesPlan ?? existing?.pagesPlan,
+      workersPlan: incoming.workersPlan ?? (hasLegacyPagesPlan ? undefined : existing?.workersPlan),
+      pagesPlan: incoming.pagesPlan,
       d1Plan: incoming.d1Plan ?? existing?.d1Plan,
     },
     apiToken,
   )
 
-  if (!next.accountId || !next.pagesProjectName || !next.d1DatabaseId) {
-    throw badRequest('Account ID, Pages project name, and D1 database ID are required')
+  if (!next.accountId || !next.d1DatabaseId) {
+    throw badRequest('Account ID and D1 database ID are required')
   }
 
   await db
@@ -132,7 +127,7 @@ export async function readCachedCloudflareUsage(db: D1DatabaseLike): Promise<Clo
 
   try {
     const parsed = JSON.parse(row.value) as CloudflareUsage
-    return typeof parsed.fetchedAt === 'string' ? parsed : null
+    return typeof parsed.fetchedAt === 'string' && parsed.workers ? parsed : null
   } catch {
     return null
   }
@@ -140,63 +135,39 @@ export async function readCachedCloudflareUsage(db: D1DatabaseLike): Promise<Clo
 
 export async function getCloudflareUsage(db: D1DatabaseLike): Promise<CloudflareUsage> {
   const settings = await readCloudflareSettings(db)
-  if (!settings || !settings.apiToken || !settings.accountId || !settings.pagesProjectName || !settings.d1DatabaseId) {
+  if (!settings || !settings.apiToken || !settings.accountId || !settings.d1DatabaseId) {
     throw badRequest('Cloudflare settings are incomplete')
   }
 
   const accountId = encodeURIComponent(settings.accountId)
-  const pagesProjectName = encodeURIComponent(settings.pagesProjectName)
   const d1DatabaseId = encodeURIComponent(settings.d1DatabaseId)
-  const project = await cloudflareRequest<Record<string, unknown>>(
-    settings,
-    `/accounts/${accountId}/pages/projects/${pagesProjectName}`,
-  )
-  const functionsScriptName = stringField(project, 'production_script_name')
-  const [deployments, database, d1Analytics, functionsAnalytics] = await Promise.all([
-    listPagesDeployments(settings),
+  const [database, workersAnalytics, d1Analytics] = await Promise.all([
     cloudflareRequest<Record<string, unknown>>(settings, `/accounts/${accountId}/d1/database/${d1DatabaseId}`).catch(() => null),
+    fetchWorkersRequestsAnalytics(settings),
     fetchD1Analytics(settings),
-    fetchPagesFunctionsRequestsAnalytics(settings, functionsScriptName).catch(() => null),
   ])
 
-  const pagesPlan = pagesPlanLimits(settings.pagesPlan)
+  const workersPlan = workersPlanLimits(settings.workersPlan)
   const d1Plan = d1PlanLimits(settings.d1Plan)
-  const workersPlan = workersPlanLimits(settings.d1Plan)
-  const deploymentsThisMonth = deployments.filter((deployment) =>
-    isInCurrentUtcMonth(stringField(deployment, 'created_on') ?? stringField(deployment, 'modified_on')),
-  ).length
-  const latest = deployments[0] ?? objectField(project, 'latest_deployment')
   const storageBytes = numberField(database, 'file_size') ?? d1Analytics.storageBytes
   const storageLimitBytes = d1Plan.databaseSizeBytes
 
   const usage: CloudflareUsage = {
     fetchedAt: new Date().toISOString(),
     settings: publicSettings(settings),
-    pages: {
-      projectName: settings.pagesProjectName,
-      projectId: stringField(project, 'id'),
-      productionBranch: stringField(project, 'production_branch'),
-      usesFunctions: Boolean(project.uses_functions),
-      functionsScriptName,
-      functionsRequests: functionsAnalytics?.requests ?? null,
-      functionsRequestLimit: workersPlan.requests,
-      functionsRequestPercent: functionsAnalytics
-        ? ratioPercent(functionsAnalytics.requests, workersPlan.requests)
-        : null,
-      functionsErrors: functionsAnalytics?.errors ?? null,
-      functionsSubrequests: functionsAnalytics?.subrequests ?? null,
-      functionsCpuTimeP99Ms: functionsAnalytics?.cpuTimeP99Ms ?? null,
-      functionsWindowStart: functionsAnalytics?.windowStart ?? null,
-      functionsWindowEnd: functionsAnalytics?.windowEnd ?? null,
-      latestDeployment: {
-        id: stringField(latest, 'id'),
-        url: deploymentUrl(latest),
-        createdOn: stringField(latest, 'created_on') ?? stringField(latest, 'modified_on'),
-        status: stringField(objectField(latest, 'latest_stage'), 'status'),
-      },
-      deploymentsThisMonth,
-      deploymentLimit: pagesPlan.buildsPerMonth,
-      deploymentPercent: pagesPlan.buildsPerMonth ? ratioPercent(deploymentsThisMonth, pagesPlan.buildsPerMonth) : null,
+    workers: {
+      scriptName: settings.workerScriptName || 'Account',
+      requests: workersAnalytics.totalRequests,
+      workerRequests: workersAnalytics.workerRequests,
+      pagesFunctionsRequests: workersAnalytics.pagesFunctionsRequests,
+      scriptRequests: workersAnalytics.scriptRequests,
+      requestLimit: workersPlan.requests,
+      requestPercent: ratioPercent(workersAnalytics.totalRequests, workersPlan.requests),
+      errors: workersAnalytics.errors,
+      subrequests: workersAnalytics.subrequests,
+      cpuTimeP99Ms: workersAnalytics.cpuTimeP99Ms,
+      windowStart: workersAnalytics.windowStart,
+      windowEnd: workersAnalytics.windowEnd,
     },
     d1: {
       databaseId: settings.d1DatabaseId,
@@ -230,48 +201,30 @@ export async function getCloudflareUsage(db: D1DatabaseLike): Promise<Cloudflare
   return usage
 }
 
-async function listPagesDeployments(settings: CloudflareSettings): Promise<Record<string, unknown>[]> {
-  const deployments: Record<string, unknown>[] = []
-  const accountId = encodeURIComponent(settings.accountId)
-  const pagesProjectName = encodeURIComponent(settings.pagesProjectName)
-  for (let page = 1; page <= pagesDeploymentsPageLimit; page += 1) {
-    const batch = await cloudflareRequest<Record<string, unknown>[]>(
-      settings,
-      `/accounts/${accountId}/pages/projects/${pagesProjectName}/deployments?page=${page}&per_page=${pagesDeploymentsPerPage}`,
-    )
-    deployments.push(...batch)
-    if (batch.length < pagesDeploymentsPerPage) break
-  }
-  return deployments
-}
-
-async function fetchPagesFunctionsRequestsAnalytics(settings: CloudflareSettings, scriptName: string | null) {
+async function fetchWorkersRequestsAnalytics(settings: CloudflareSettings) {
   const end = new Date()
   const start =
-    settings.d1Plan === 'free'
+    settings.workersPlan === 'free'
       ? new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
       : new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1))
-  const scriptFilter = scriptName ? 'scriptName: $scriptName,' : ''
-  const scriptVariable = scriptName ? '$scriptName: string,' : ''
   const variables = {
     accountTag: settings.accountId,
+    scriptName: settings.workerScriptName || '__edgegist_no_worker_name__',
     datetimeStart: start.toISOString(),
     datetimeEnd: end.toISOString(),
-    ...(scriptName ? { scriptName } : {}),
   }
   const query = `
-    query EdgeGistPagesFunctionsRequestsUsage(
+    query EdgeGistWorkersRequestsUsage(
       $accountTag: string,
-      ${scriptVariable}
+      $scriptName: string,
       $datetimeStart: string,
       $datetimeEnd: string
     ) {
       viewer {
         accounts(filter: { accountTag: $accountTag }) {
-          pagesFunctionsInvocationsAdaptiveGroups(
+          accountWorkers: workersInvocationsAdaptive(
             limit: 10000
             filter: {
-              ${scriptFilter}
               datetime_geq: $datetimeStart,
               datetime_leq: $datetimeEnd
             }
@@ -285,6 +238,33 @@ async function fetchPagesFunctionsRequestsAnalytics(settings: CloudflareSettings
               cpuTimeP99
             }
           }
+          scriptWorkers: workersInvocationsAdaptive(
+            limit: 10000
+            filter: {
+              scriptName: $scriptName,
+              datetime_geq: $datetimeStart,
+              datetime_leq: $datetimeEnd
+            }
+          ) {
+            sum {
+              requests
+              errors
+              subrequests
+            }
+          }
+          pagesFunctionsInvocationsAdaptiveGroups(
+            limit: 10000
+            filter: {
+              datetime_geq: $datetimeStart,
+              datetime_leq: $datetimeEnd
+            }
+          ) {
+            sum {
+              requests
+              errors
+              subrequests
+            }
+          }
         }
       }
     }
@@ -292,15 +272,26 @@ async function fetchPagesFunctionsRequestsAnalytics(settings: CloudflareSettings
 
   const payload = await cloudflareGraphqlRequest(settings, query, variables)
   const account = payload?.data?.viewer?.accounts?.[0]
-  const analytics = Array.isArray(account?.pagesFunctionsInvocationsAdaptiveGroups)
+  const accountWorkers = Array.isArray(account?.accountWorkers)
+    ? account.accountWorkers
+    : []
+  const scriptWorkers = Array.isArray(account?.scriptWorkers)
+    ? account.scriptWorkers
+    : []
+  const pagesFunctions = Array.isArray(account?.pagesFunctionsInvocationsAdaptiveGroups)
     ? account.pagesFunctionsInvocationsAdaptiveGroups
     : []
+  const workerRequests = sumField(accountWorkers, 'sum', 'requests')
+  const pagesFunctionsRequests = sumField(pagesFunctions, 'sum', 'requests')
 
   return {
-    requests: sumField(analytics, 'sum', 'requests'),
-    errors: sumField(analytics, 'sum', 'errors'),
-    subrequests: sumField(analytics, 'sum', 'subrequests'),
-    cpuTimeP99Ms: maxField(analytics, 'quantiles', 'cpuTimeP99'),
+    totalRequests: workerRequests + pagesFunctionsRequests,
+    workerRequests,
+    pagesFunctionsRequests,
+    scriptRequests: sumField(scriptWorkers, 'sum', 'requests'),
+    errors: sumField(accountWorkers, 'sum', 'errors') + sumField(pagesFunctions, 'sum', 'errors'),
+    subrequests: sumField(accountWorkers, 'sum', 'subrequests') + sumField(pagesFunctions, 'sum', 'subrequests'),
+    cpuTimeP99Ms: maxField(accountWorkers, 'quantiles', 'cpuTimeP99'),
     windowStart: variables.datetimeStart,
     windowEnd: variables.datetimeEnd,
   }
@@ -371,6 +362,7 @@ async function fetchD1Analytics(settings: CloudflareSettings) {
   }
 }
 
+
 async function cloudflareRequest<T>(settings: CloudflareSettings, path: string): Promise<T> {
   const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
     headers: {
@@ -411,13 +403,21 @@ type CloudflareApiResponse<T> = {
   errors?: Array<{ message?: string }>
 }
 
-function normalizeSettings(payload: Partial<CloudflareSettings>, apiToken: string): CloudflareSettings {
+function normalizeSettings(
+  payload: Partial<CloudflareSettings> & LegacyCloudflareSettings,
+  apiToken: string,
+): CloudflareSettings {
+  const legacyWorkerPlan = payload.pagesPlan === 'free'
+    ? 'free'
+    : payload.pagesPlan === 'pro' || payload.pagesPlan === 'business' || payload.pagesPlan === 'enterprise'
+      ? 'paid'
+      : undefined
   return {
     accountId: payload.accountId?.trim() ?? '',
     apiToken: apiToken.trim(),
-    pagesProjectName: payload.pagesProjectName?.trim() ?? '',
+    workerScriptName: (payload.workerScriptName ?? payload.pagesProjectName)?.trim() ?? '',
     d1DatabaseId: payload.d1DatabaseId?.trim() ?? '',
-    pagesPlan: isPagesPlan(payload.pagesPlan) ? payload.pagesPlan : 'free',
+    workersPlan: isWorkersPlan(payload.workersPlan) ? payload.workersPlan : legacyWorkerPlan ?? 'free',
     d1Plan: isD1Plan(payload.d1Plan) ? payload.d1Plan : 'free',
   }
 }
@@ -426,28 +426,21 @@ function publicSettings(settings: CloudflareSettings): PublicCloudflareSettings 
   return {
     accountId: settings.accountId,
     hasApiToken: Boolean(settings.apiToken),
-    pagesProjectName: settings.pagesProjectName,
+    workerScriptName: settings.workerScriptName,
     d1DatabaseId: settings.d1DatabaseId,
-    pagesPlan: settings.pagesPlan,
+    workersPlan: settings.workersPlan,
     d1Plan: settings.d1Plan,
   }
 }
 
-function pagesPlanLimits(plan: PagesPlan) {
-  if (plan === 'pro') return { buildsPerMonth: 5000 }
-  if (plan === 'business') return { buildsPerMonth: 20000 }
-  if (plan === 'enterprise') return { buildsPerMonth: null }
-  return { buildsPerMonth: 500 }
-}
-
-function isPagesPlan(value: unknown): value is PagesPlan {
-  return value === 'free' || value === 'pro' || value === 'business' || value === 'enterprise'
-}
-
-function workersPlanLimits(plan: D1Plan) {
+function workersPlanLimits(plan: WorkersPlan) {
   return {
     requests: plan === 'paid' ? 10_000_000 : 100_000,
   }
+}
+
+function isWorkersPlan(value: unknown): value is WorkersPlan {
+  return value === 'free' || value === 'paid'
 }
 
 function d1PlanLimits(plan: D1Plan) {
@@ -470,13 +463,6 @@ function isD1Plan(value: unknown): value is D1Plan {
   return value === 'free' || value === 'paid'
 }
 
-function isInCurrentUtcMonth(value: string | null): boolean {
-  if (!value) return false
-  const date = new Date(value)
-  const now = new Date()
-  return date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() === now.getUTCMonth()
-}
-
 function stringField(value: unknown, field: string): string | null {
   if (!value || typeof value !== 'object') return null
   const candidate = (value as Record<string, unknown>)[field]
@@ -489,13 +475,6 @@ function objectField(value: unknown, field: string): Record<string, unknown> | n
   return candidate && typeof candidate === 'object' && !Array.isArray(candidate)
     ? candidate as Record<string, unknown>
     : null
-}
-
-function deploymentUrl(value: unknown): string | null {
-  if (!value || typeof value !== 'object') return null
-  const aliases = (value as Record<string, unknown>).aliases
-  if (Array.isArray(aliases) && typeof aliases[0] === 'string') return aliases[0]
-  return stringField(value, 'url')
 }
 
 function sumField(items: unknown[], group: string, field: string): number {
@@ -518,11 +497,12 @@ function numberField(value: unknown, field: string): number | null {
   return typeof candidate === 'number' && Number.isFinite(candidate) ? candidate : null
 }
 
-function ratioPercent(value: number, limit: number): number {
-  if (limit <= 0) return 0
+function ratioPercent(value: number, limit: number | null): number | null {
+  if (!limit || limit <= 0) return null
   return Math.min(100, Math.round((value / limit) * 1000) / 10)
 }
 
 function cloudflareErrorMessage(payload: CloudflareApiResponse<unknown> | null, status: number): string {
-  return payload?.errors?.[0]?.message ?? `Cloudflare API request failed with ${status}`
+  const message = payload?.errors?.map((error) => error.message).filter(Boolean).join('; ')
+  return message || `Cloudflare request failed with ${status}`
 }

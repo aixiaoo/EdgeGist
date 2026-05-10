@@ -86,7 +86,7 @@ import type {
   GistHistoryFileChange,
   GistHistoryItem,
   GistSummary,
-  PagesPlan,
+  WorkersPlan,
 } from './types'
 import { cn } from './lib/utils'
 
@@ -279,9 +279,9 @@ const defaultCloudflareSettings: CloudflareSettingsDraft = {
   accountId: '',
   apiToken: '',
   hasApiToken: false,
-  pagesProjectName: '',
+  workerScriptName: '',
   d1DatabaseId: '',
-  pagesPlan: 'free',
+  workersPlan: 'free',
   d1Plan: 'free',
 }
 
@@ -295,7 +295,9 @@ const englishTranslations = {
   autoRefreshUsage: 'Auto refresh on entry',
   backToList: 'Back to list',
   baseUrl: 'Base URL',
-  buildsThisMonth: 'Builds this month',
+  feature: 'Feature',
+  limit: 'Limit',
+  usage: 'Usage',
   cancel: 'Cancel',
   cloudflare: 'Cloudflare',
   cloudflareApiToken: 'Cloudflare API token',
@@ -311,9 +313,9 @@ const englishTranslations = {
   createdLabel: 'Created',
   createGist: 'Create',
   d1DatabaseId: 'D1 database ID',
-  d1Plan: 'Workers/D1 plan',
-  d1Usage: 'D1 usage',
-  d1UsageDescription: 'Rows and storage for the configured database',
+  d1Plan: 'D1 plan',
+  d1Usage: 'D1 database usage',
+  d1UsageDescription: 'Query, row, and storage usage for the configured database',
   dashboard: 'Dashboard',
   data: 'Data',
   dataManagement: 'Data',
@@ -389,9 +391,13 @@ const englishTranslations = {
   fileTreeSearchPlaceholder: 'Search',
   fileUploadFailed: 'Failed to read file.',
   followSystem: 'Follow system',
-  functionRequestsThisMonth: 'This month’s requests',
-  functionRequestsToday: 'Today’s requests',
-  functionsScript: 'Functions script',
+  workerErrors: 'Errors',
+  workerAccountRequests: 'Workers account requests',
+  workerLegacyPagesRequests: 'Pages Functions requests',
+  workerRequestsThisMonth: 'Requests this month',
+  workerRequestsToday: 'Requests today',
+  workerScriptRequests: 'This Worker requests',
+  workerScript: 'Worker name',
   gists: 'Gists',
   gistCreated: 'Created.',
   gistDetail: 'Gist detail',
@@ -439,10 +445,9 @@ const englishTranslations = {
   newFile: 'New file',
   notDetected: 'Not detected',
   overview: 'Overview',
-  pagesPlan: 'Pages plan',
-  pagesProject: 'Pages project',
-  pagesUsage: 'Pages usage',
-  pagesUsageDescription: 'Current month deployment usage and project limits',
+  workersPlan: 'Workers plan',
+  workersUsage: 'Workers requests',
+  workersUsageDescription: 'Account total requests and current Worker requests',
   password: 'Password',
   pageSize: 'Per page',
   pageNumber: 'Page {page}',
@@ -500,7 +505,7 @@ const englishTranslations = {
   usageAndQuota: 'Usage and quota',
   usageD1AfterRefresh: 'D1 usage will appear after a successful refresh.',
   usageLastRefreshed: 'Last refreshed',
-  usageRefreshScope: 'Pages and D1 usage are refreshed together.',
+  usageRefreshScope: 'Workers and D1 usage are refreshed together.',
   usageWindow: 'Usage window',
   updatedAt: 'Updated at',
   updatedLabel: 'Updated',
@@ -538,7 +543,9 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     autoRefreshUsage: '进入页面自动刷新',
     backToList: '返回列表',
     baseUrl: 'Base URL',
-    buildsThisMonth: '本月 builds',
+    feature: 'Feature',
+    limit: 'Limit',
+    usage: 'Usage',
     cancel: '取消',
     cloudflare: 'Cloudflare',
     cloudflareApiToken: 'Cloudflare API token',
@@ -554,14 +561,14 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     createdLabel: '创建于',
     createGist: '新增',
     d1DatabaseId: 'D1 database ID',
-    d1Plan: 'Workers/D1 plan',
-    d1Usage: 'D1 用量',
-    d1UsageDescription: '当前配置 database 的 rows 和 storage',
+    d1Plan: 'D1 套餐',
+    d1Usage: 'D1 数据库用量',
+    d1UsageDescription: '当前配置数据库的 query、rows 和 storage 用量',
     dashboard: 'Dashboard',
     data: '数据',
     dataManagement: '数据',
-    database: 'Database',
-    databaseSize: 'Database size',
+    database: '数据库',
+    databaseSize: '数据库大小',
     delete: '删除',
     deleteFile: '删除文件',
     deleteFileConfirm: '删除文件 {filename}？',
@@ -632,9 +639,13 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     fileTreeSearchPlaceholder: '搜索',
     fileUploadFailed: '读取文件失败。',
     followSystem: '跟随系统',
-    functionRequestsThisMonth: '本月请求',
-    functionRequestsToday: '今天的请求',
-    functionsScript: 'Functions script',
+    workerErrors: '错误',
+    workerAccountRequests: 'Workers 账号请求',
+    workerLegacyPagesRequests: 'Pages Functions 请求',
+    workerRequestsThisMonth: '本月请求',
+    workerRequestsToday: '今天的请求',
+    workerScriptRequests: '本 Worker 请求',
+    workerScript: 'Worker 名称',
     gists: 'Gists',
     gistCreated: '已创建。',
     gistDetail: 'Gist 详情',
@@ -682,10 +693,9 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     newFile: '新文件',
     notDetected: '未检测到',
     overview: '概览',
-    pagesPlan: 'Pages plan',
-    pagesProject: 'Pages project',
-    pagesUsage: 'Pages 用量',
-    pagesUsageDescription: '本月 deployment 用量和项目额度',
+    workersPlan: 'Workers 套餐',
+    workersUsage: 'Workers 请求用量',
+    workersUsageDescription: '账号总请求和当前 Worker 请求',
     password: '密码',
     pageSize: '每页',
     pageNumber: '第 {page} 页',
@@ -699,7 +709,7 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     notPublicGist: '这个内容不是公开的。',
     rawUrl: 'Raw URL',
     rawUrlCopied: 'Raw URL 已复制。',
-    readQueries: 'Read queries',
+    readQueries: '读取查询',
     recentGists: '最近的 gists',
     recentGistsDescription: '服务中的最新更新',
     refresh: '刷新',
@@ -743,7 +753,7 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     usageAndQuota: '用量和额度',
     usageD1AfterRefresh: '成功刷新后会显示 D1 用量。',
     usageLastRefreshed: '上次刷新',
-    usageRefreshScope: 'Pages 和 D1 用量会一起刷新。',
+    usageRefreshScope: 'Workers 和 D1 用量会一起刷新。',
     usageWindow: '用量窗口',
     updatedAt: '更新日期时间',
     updatedLabel: '更新于',
@@ -752,9 +762,9 @@ const translations: Record<Locale, Record<TranslationKey, string>> = {
     uploadingFiles: '正在上传文件',
     username: '用户名',
     versionsCount: '{count} 个版本',
-    writeQueries: 'Write queries',
-    rowsRead: 'Rows read',
-    rowsWritten: 'Rows written',
+    writeQueries: '写入查询',
+    rowsRead: '读取行数',
+    rowsWritten: '写入行数',
     updatedRelative: '更新于 {time}',
     justNow: '刚刚',
     minutesAgo: '{count} 分钟前',
@@ -3659,11 +3669,11 @@ function CloudflarePage({
               />
             </Field>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t('pagesProject')} htmlFor="cf-pages-project">
+              <Field label={t('workerScript')} htmlFor="cf-worker-script">
                 <Input
-                  id="cf-pages-project"
-                  value={settings.pagesProjectName}
-                  onChange={(event) => onSettingsChange({ ...settings, pagesProjectName: event.target.value })}
+                  id="cf-worker-script"
+                  value={settings.workerScriptName}
+                  onChange={(event) => onSettingsChange({ ...settings, workerScriptName: event.target.value })}
                   placeholder="edge-gist"
                 />
               </Field>
@@ -3677,16 +3687,14 @@ function CloudflarePage({
               </Field>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t('pagesPlan')} htmlFor="cf-pages-plan">
+              <Field label={t('workersPlan')} htmlFor="cf-workers-plan">
                 <SelectBox
-                  id="cf-pages-plan"
-                  value={settings.pagesPlan}
-                  onChange={(value) => onSettingsChange({ ...settings, pagesPlan: value as PagesPlan })}
+                  id="cf-workers-plan"
+                  value={settings.workersPlan}
+                  onChange={(value) => onSettingsChange({ ...settings, workersPlan: value as WorkersPlan })}
                   options={[
                     ['free', 'Free'],
-                    ['pro', 'Pro'],
-                    ['business', 'Business'],
-                    ['enterprise', 'Enterprise'],
+                    ['paid', 'Paid'],
                   ]}
                 />
               </Field>
@@ -3743,30 +3751,34 @@ function CloudflarePage({
         ) : null}
         <Card>
           <CardHeader className="border-b">
-            <CardTitle>{t('pagesUsage')}</CardTitle>
-            <CardDescription>{t('pagesUsageDescription')}</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>{t('workersUsage')}</CardTitle>
+                <CardDescription>{t('workersUsageDescription')}</CardDescription>
+              </div>
+              {usage ? (
+                <div className="text-sm text-muted-foreground">
+                  {formatDateRange(usage.workers.windowStart, usage.workers.windowEnd)}
+                </div>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 p-4">
             {usage ? (
               <>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <InfoRow icon={Cloud} label={t('project')} value={usage.pages.projectName} />
-                  <InfoRow icon={GitCommitHorizontal} label={t('productionBranch')} value={usage.pages.productionBranch ?? '-'} />
-                  <InfoRow icon={ShieldCheck} label={t('functions')} value={usage.pages.usesFunctions ? t('enabled') : t('notDetected')} />
-                  <InfoRow icon={FileCode2} label={t('functionsScript')} value={usage.pages.functionsScriptName ?? '-'} />
-                  <InfoRow icon={ExternalLink} label={t('latestDeployment')} value={usage.pages.latestDeployment.status ?? '-'} />
+                  <InfoRow icon={Gauge} label={t('workerScriptRequests')} value={formatNumber(usage.workers.scriptRequests)} />
+                  <InfoRow icon={Gauge} label={t('workerAccountRequests')} value={formatNumber(usage.workers.workerRequests)} />
+                  {usage.workers.pagesFunctionsRequests > 0 ? (
+                    <InfoRow icon={Gauge} label={t('workerLegacyPagesRequests')} value={formatNumber(usage.workers.pagesFunctionsRequests)} />
+                  ) : null}
+                  <InfoRow icon={Gauge} label={t('workerErrors')} value={formatNumber(usage.workers.errors)} />
                 </div>
                 <UsageBar
-                  label={usage.settings.d1Plan === 'paid' ? t('functionRequestsThisMonth') : t('functionRequestsToday')}
-                  limit={usage.pages.functionsRequestLimit ?? null}
-                  percent={usage.pages.functionsRequestPercent ?? null}
-                  value={usage.pages.functionsRequests ?? null}
-                />
-                <UsageBar
-                  label={t('buildsThisMonth')}
-                  limit={usage.pages.deploymentLimit}
-                  percent={usage.pages.deploymentPercent}
-                  value={usage.pages.deploymentsThisMonth}
+                  label={usage.settings.workersPlan === 'paid' ? t('workerRequestsThisMonth') : t('workerRequestsToday')}
+                  limit={usage.workers.requestLimit}
+                  percent={usage.workers.requestPercent}
+                  value={usage.workers.requests}
                 />
               </>
             ) : usageLoading ? (
@@ -3779,15 +3791,22 @@ function CloudflarePage({
 
         <Card>
           <CardHeader className="border-b">
-            <CardTitle>{t('d1Usage')}</CardTitle>
-            <CardDescription>{t('d1UsageDescription')}</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>{t('d1Usage')}</CardTitle>
+                <CardDescription>{t('d1UsageDescription')}</CardDescription>
+              </div>
+              {usage ? (
+                <div className="text-sm text-muted-foreground">
+                  {formatDateRange(usage.d1.windowStart, usage.d1.windowEnd)}
+                </div>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="grid gap-4 p-4">
             {usage ? (
               <>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <InfoRow icon={Database} label={t('database')} value={usage.d1.databaseName ?? usage.d1.databaseId} />
-                  <InfoRow icon={Clock3} label={t('usageWindow')} value={formatDateRange(usage.d1.windowStart, usage.d1.windowEnd)} />
                   <InfoRow icon={Gauge} label={t('readQueries')} value={formatNumber(usage.d1.readQueries)} />
                   <InfoRow icon={Gauge} label={t('writeQueries')} value={formatNumber(usage.d1.writeQueries)} />
                 </div>
@@ -6533,8 +6552,8 @@ function toCloudflareDraft(settings: CloudflareSettings): CloudflareSettingsDraf
     d1DatabaseId: settings.d1DatabaseId,
     d1Plan: settings.d1Plan,
     hasApiToken: settings.hasApiToken,
-    pagesPlan: settings.pagesPlan,
-    pagesProjectName: settings.pagesProjectName,
+    workersPlan: settings.workersPlan,
+    workerScriptName: settings.workerScriptName,
   }
 }
 
@@ -6684,7 +6703,11 @@ function formatNumberNullable(value: number | null) {
 }
 
 function formatDateRange(start: string, end: string) {
-  return start === end ? start : `${start} to ${end}`
+  const startDate = new Date(start)
+  const endDate = new Date(end)
+  const startLabel = Number.isNaN(startDate.getTime()) ? start : startDate.toLocaleString()
+  const endLabel = Number.isNaN(endDate.getTime()) ? end : endDate.toLocaleString()
+  return `${startLabel} - ${endLabel}`
 }
 
 function formatDateTime(value: string) {
